@@ -51,7 +51,6 @@ def add_nat_rule(client_session, esg_name, nat_type, original_ip, translated_ip)
     if result['status'] != 201:
         return None
     else:
-        print result
         return result['objectId']
 
 def _add_nat_rule(client_session, **kwargs):
