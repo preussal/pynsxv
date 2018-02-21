@@ -51,7 +51,6 @@ def add_nat_rule(client_session, esg_name, nat_type, original_ip, translated_ip)
     if result['status'] != 201:
         return None
     else:
-        print result
         return result['objectId']
 
 def _add_nat_rule(client_session, **kwargs):
@@ -64,9 +63,9 @@ def _add_nat_rule(client_session, **kwargs):
     if result and kwargs['verbose']:
         print result
     elif result:
-        print 'NAT Rule created for {}'.format(result, kwargs['esg_name'])
+        print '{} Rule created on edge {} for {} -> {}'.format(kwargs['nat_type'].upper(), kwargs['esg_name'], kwargs['original_ip'], kwargs['translated_ip'])
     else:
-        print 'NAT Rule creation failed for {}'.format(kwargs['esg_name'])
+        print '{} Rule creation failed on edge {} for {} -> {}'.format(kwargs['nat_type'].upper(), kwargs['esg_name'], kwargs['original_ip'], kwargs['translated_ip'])
 
 def contruct_parser(subparsers):
     parser = subparsers.add_parser('nat', description="Functions for NAT",
