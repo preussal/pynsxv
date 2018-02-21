@@ -43,7 +43,7 @@ def create_self_signed_cert(client_session, scope_id, cert, private_key):
     if result['status'] != 200:
         return None
     else:
-        return result['certificate']['objectId']
+        return result['body']['certificates']['certificate']['objectId']
 
 def _create_self_signed_cert(client_session, **kwargs):
     needed_params = ['scope_id', 'cert', 'private_key']
