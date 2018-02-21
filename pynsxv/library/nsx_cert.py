@@ -38,7 +38,7 @@ def create_self_signed_cert(client_session, scope_id, cert, private_key):
     result = client_session.create('certificateSelfSigned', uri_parameters={'scopeId': esg_id},
                                    request_body_dict=cert_dict)
 
-    print result['body']['certificates']['certificate']['subjectCn']
+    # print result['body']['certificates']['certificate']['subjectCn']
 
     if result['status'] != 200:
         return None
