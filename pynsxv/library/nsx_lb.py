@@ -26,7 +26,7 @@ import argparse
 import ConfigParser
 import json
 from tabulate import tabulate
-from libutils import get_edge, check_for_parameters, get_certificate
+from libutils import get_edge, check_for_parameters, get_certificate, get_rule, get_vip
 from nsxramlclient.client import NsxClient
 from argparse import RawTextHelpFormatter
 from pkg_resources import resource_filename
@@ -184,6 +184,61 @@ def _add_app_rule(client_session, **kwargs):
                                                                                                   result)
     else:
         print 'LB App configuration on esg {} failed'.format(kwargs['esg_name'])
+
+
+def add_rule_to_vip(client_session, esg_name, rule_name, vip_name):
+
+    esg_id, esg_params = get_edge(client_session, esg_name)
+    if not esg_id:
+        print "ESG not found"
+        return None
+
+    rule_id, rule_params = get_rule(client_session, esg_name, rule_name)
+    if not rule_id:
+        print "Rule not found"
+        return None
+
+    vip_id, vip_params = get_vip(client_session, esg_name, vip_name)
+    if not vip_id:
+        print "VIP not found"
+        return None
+
+    esg = client_session.read('nsxEdge', uri_parameters={'edgeId': esg_id})['body']
+    vips = esg['edge']['features']['loadBalancer']['virtualServer']
+
+    for vip in vips:
+        if vip['virtualServerId'] == vip_id:
+            if not vip.get('applicationRuleId'):
+                print "here"
+                vip['applicationRuleId'] = []
+            elif type(vip['applicationRuleId']) == type(str()):
+                print "there"
+                r = vip['applicationRuleId']
+                vip['applicationRuleId'] = []
+                vip['applicationRuleId'].append(r)
+            vip['applicationRuleId'].append(rule_id)
+
+    result = client_session.update('nsxEdge', uri_parameters={'edgeId': esg_id}, request_body_dict=esg)
+
+    if result['status'] != 204:
+        return None
+    else:
+        return True
+
+
+def _add_rule_to_vip(client_session, **kwargs):
+    needed_params = ['esg_name', 'rule_name', 'vip_name']
+    if not check_for_parameters(needed_params, kwargs):
+        return None
+
+    result = add_rule_to_vip(client_session, kwargs['esg_name'], kwargs['rule_name'], kwargs['vip_name'])
+
+    if result and kwargs['verbose']:
+        print result
+    elif result:
+        print 'VIP {} on esg {} has been updated to include rule {}'.format(kwargs['vip_name'], kwargs['esg_name'], kwargs['rule_name'])
+    else:
+        print 'Failed to update VIP {} on esg {} with rule {}'.format(kwargs['vip_name'], kwargs['esg_name'], kwargs['rule_name'])
 
 
 def read_app_profile(client_session, esg_name, prof_name):
@@ -1498,7 +1553,8 @@ def contruct_parser(subparsers):
     disable_lb:         Disables the Load Balancing Service on the ESG
     show_lb:            Show the current LB Configuration and Status
     delete_lb:          Delete the complete LB Configuration on the Load Balancer
-    add_rule:       Adds a new application rule
+    add_rule:           Adds a new application rule
+    add_rule_to_vip     Adds an additional rule to an already created VIP
     """)
 
     parser.add_argument("-n",
@@ -1701,7 +1757,8 @@ def _lb_main(args):
             'disable_lb': _disable_lb,
             'show_lb': _show_loadbalancer,
             'delete_lb': _delete_load_balancer,
-            'add_rule': _add_app_rule
+            'add_rule': _add_app_rule,
+            'add_rule_to_vip': _add_rule_to_vip
             }
         command_selector[args.command](client_session, esg_name=args.esg_name, profile_name=args.profile_name,
                                        profile_id=args.profile_id, protocol=args.protocol,

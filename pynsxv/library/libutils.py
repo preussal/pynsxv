@@ -203,6 +203,46 @@ def get_certificate(client_session, edge_name, cert_name):
 
         return cert_id, cert_params
 
+
+def get_rule(client_session, edge_name, rule_name):
+    """
+    :param client_session: An instance of an NsxClient Session
+    :param edge_name: The name of the edge searched
+    :param rule_name: The name of the rule to be found (the common name)
+    :return: A tuple, with the first item being the id of the rule
+             and the second item being a dictionary of the logical parameters as return by the NSX API
+    """
+    edge_id, edge_params = get_edge(client_session, edge_name)
+    all_rules = client_session.read('appRules', uri_parameters={"edgeId": edge_id})['body']['loadBalancer']['applicationRule']
+
+    try:
+        rule_params = [scope for scope in all_rules if scope['name'] == rule_name][0]
+        rule_id = rule_params['applicationRuleId']
+    except IndexError:
+        return None, None
+
+    return rule_id, rule_params
+
+def get_vip(client_session, edge_name, vip_name):
+    """
+    :param client_session: An instance of an NsxClient Session
+    :param edge_name: The name of the edge searched
+    :param vip_name: The name of the VIP to be found (the common name)
+    :return: A tuple, with the first item being the id of the VIP
+             and the second item being a dictionary of the logical parameters as return by the NSX API
+    """
+    edge_id, edge_params = get_edge(client_session, edge_name)
+    all_vips = client_session.read('virtualServers', uri_parameters={"edgeId": edge_id})['body']['loadBalancer']['virtualServer']
+
+    try:
+        vip_params = [scope for scope in all_vips if scope['name'] == vip_name][0]
+        vip_id = vip_params['virtualServerId']
+    except IndexError:
+        return None, None
+
+    return vip_id, vip_params
+
+
 def get_edge(client_session, edge_name):
     """
     :param client_session: An instance of an NsxClient Session
