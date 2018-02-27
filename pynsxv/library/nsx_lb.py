@@ -209,10 +209,8 @@ def add_rule_to_vip(client_session, esg_name, rule_name, vip_name):
     for vip in vips:
         if vip['virtualServerId'] == vip_id:
             if not vip.get('applicationRuleId'):
-                print "here"
                 vip['applicationRuleId'] = []
             elif type(vip['applicationRuleId']) == type(str()):
-                print "there"
                 r = vip['applicationRuleId']
                 vip['applicationRuleId'] = []
                 vip['applicationRuleId'].append(r)
@@ -223,7 +221,7 @@ def add_rule_to_vip(client_session, esg_name, rule_name, vip_name):
     if result['status'] != 204:
         return None
     else:
-        return True
+        return result
 
 
 def _add_rule_to_vip(client_session, **kwargs):
