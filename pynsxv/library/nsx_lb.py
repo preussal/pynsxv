@@ -36,7 +36,7 @@ __author__ = 'yfauser'
 
 
 def add_app_profile(client_session, esg_name, prof_name, template, persistence=None, expire_time=None, cookie_name=None,
-                    cookie_mode=None, xforwardedfor=None, url=None, cert_name=None):
+                    cookie_mode=None, xforwardedfor=None, url=None, cert_name=None, ssl_passthrough=None):
     """
     This function adds an Load Balancer Application profile to an ESG
 
@@ -108,6 +108,9 @@ def add_app_profile(client_session, esg_name, prof_name, template, persistence=N
     else:
         app_prof['applicationProfile']['insertXForwardedFor'] = 'false'
 
+    if ssl_passthrough == 'true':
+        app_prof['applicationProfile']['sslPassthrough'] = 'true'
+
     if url:
         app_prof['applicationProfile']['httpRedirect'] = {'to': url}
 
@@ -127,7 +130,7 @@ def _add_app_profile(client_session, **kwargs):
     result = add_app_profile(client_session, kwargs['esg_name'], kwargs['profile_name'], kwargs['protocol'],
                              persistence=kwargs['persistence'], expire_time=kwargs['expire'],
                              cookie_name=kwargs['cookie_name'], cookie_mode=kwargs['cookie_mode'],
-                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'], cert_name=kwargs['cert_name'])
+                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'], cert_name=kwargs['cert_name'], ssl_passthrough=kwargs['ssl_passthrough'])
 
     if result and kwargs['verbose']:
         print result
@@ -1707,6 +1710,9 @@ def contruct_parser(subparsers):
     parser.add_argument("-cert",
                         "--cert_name",
                         help="Name of certificate to use for app profile")
+    parser.add_argument("-ssl_passthrough",
+                        "--ssl_passthrough",
+                        help="true/false to pass SSL traffic on to next hop, defaults to false")
 
     parser.set_defaults(func=_lb_main)
 
@@ -1776,7 +1782,7 @@ def _lb_main(args):
                                        mon_expected=args.mon_expected, method=args.method, send=args.send,
                                        receive=args.receive, extension=args.extension, verbose=args.verbose,
                                        rule_name=args.rule_name, rule_script=args.rule_script,
-                                       rule_id=args.rule_id, cert_name=args.cert_name)
+                                       rule_id=args.rule_id, cert_name=args.cert_name, ssl_passthrough=args.ssl_passthrough)
     except KeyError as e:
         print('Unknown command: {}'.format(e))
 
