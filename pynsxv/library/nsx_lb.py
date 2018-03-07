@@ -36,7 +36,7 @@ __author__ = 'yfauser'
 
 
 def add_app_profile(client_session, esg_name, prof_name, template, persistence=None, expire_time=None, cookie_name=None,
-                    cookie_mode=None, xforwardedfor=None, url=None, cert_name=None, ssl_passthrough=None):
+                    cookie_mode=None, xforwardedfor=None, url=None, cert_name=None, ssl_passthrough=None, pool_side_ssl=None):
     """
     This function adds an Load Balancer Application profile to an ESG
 
@@ -111,6 +111,12 @@ def add_app_profile(client_session, esg_name, prof_name, template, persistence=N
     if ssl_passthrough == 'true':
         app_prof['applicationProfile']['sslPassthrough'] = 'true'
 
+    if pool_side_ssl == 'true':
+        app_prof['applicationProfile']['serverSslEnabled'] = 'true'
+        app_prof['applicationProfile']['serverSsl'] = {}
+        app_prof['applicationProfile']['serverSsl']['ciphers'] = 'DEFAULT'
+        app_prof['applicationProfile']['serverSsl']['serverAuth'] = 'false'
+
     if url:
         app_prof['applicationProfile']['httpRedirect'] = {'to': url}
 
@@ -130,7 +136,8 @@ def _add_app_profile(client_session, **kwargs):
     result = add_app_profile(client_session, kwargs['esg_name'], kwargs['profile_name'], kwargs['protocol'],
                              persistence=kwargs['persistence'], expire_time=kwargs['expire'],
                              cookie_name=kwargs['cookie_name'], cookie_mode=kwargs['cookie_mode'],
-                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'], cert_name=kwargs['cert_name'], ssl_passthrough=kwargs['ssl_passthrough'])
+                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'], cert_name=kwargs['cert_name'], ssl_passthrough=kwargs['ssl_passthrough'],
+                             pool_side_ssl=kwargs['pool_side_ssl'])
 
     if result and kwargs['verbose']:
         print result
@@ -1713,6 +1720,9 @@ def contruct_parser(subparsers):
     parser.add_argument("-ssl_passthrough",
                         "--ssl_passthrough",
                         help="true/false to pass SSL traffic on to next hop, defaults to false")
+    parser.add_argument("-pool_side_ssl",
+                        "--pool_side_ssl",
+                        help="true/false to terminate current SSL and start new SSL to the pool members")
 
     parser.set_defaults(func=_lb_main)
 
@@ -1782,7 +1792,8 @@ def _lb_main(args):
                                        mon_expected=args.mon_expected, method=args.method, send=args.send,
                                        receive=args.receive, extension=args.extension, verbose=args.verbose,
                                        rule_name=args.rule_name, rule_script=args.rule_script,
-                                       rule_id=args.rule_id, cert_name=args.cert_name, ssl_passthrough=args.ssl_passthrough)
+                                       rule_id=args.rule_id, cert_name=args.cert_name, ssl_passthrough=args.ssl_passthrough,
+                                       pool_side_ssl=args.pool_side_ssl)
     except KeyError as e:
         print('Unknown command: {}'.format(e))
 
