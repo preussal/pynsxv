@@ -100,17 +100,16 @@ def get_scope(client_session, transport_zone_name):
         # vdn_scope = [scope for scope in vdn_scope_list[0]['vdnScope']
         #              if scope['name'] == transport_zone_name][0]
         vdn_scope = []
-        print("Iterating over vdn_scope_list...")
         for scope in vdn_scope_list:
-            print("scope['vdnScope']:  " + str(scope['vdnScope']))
-            for vdnScope in scope['vdnScope']:
-                print('vdnScope:  ' + str(vdnScope))
+            # It's possible scope['vdnScope'] is a single scope object or a list
+            # of scope objects if multiple transport zones exist.  Normalize to
+            # a list for finding the right scope in either scenario.
+            vdnScopes = scope['vdnScope'] if instanceof(scope['vdnScope'], list) else [scope['vdnScope']]
+
+            for vdnScope in vdnScopes:
                 if vdnScope['name'] == transport_zone_name:
-                    print("scope with TZ name:  " + str(scope))
                     vdn_scope.append(vdnScope)
         vdn_scope = vdn_scope[0]
-        # vdn_scope = [scope['vdnScope'] for scope in vdn_scope_list
-        #               if scope['vdnScope']['name'] == transport_zone_name][0]
     except KeyError:
         return None, None
 
