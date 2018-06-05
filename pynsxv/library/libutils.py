@@ -100,7 +100,9 @@ def get_scope(client_session, transport_zone_name):
         # vdn_scope = [scope for scope in vdn_scope_list[0]['vdnScope']
         #              if scope['name'] == transport_zone_name][0]
         vdn_scope = None
+        print("Iterating over vdn_scope_list...")
         for scope in vdn_scope_list:
+            print("scope['vdnScope']:  " + str(scope['vdnScope']))
             if scope['vdnScope']['name'] == transport_zone_name:
                 print("scope with TZ name:  " + str(scope))
         vdn_scope = [scope['vdnScope'] for scope in vdn_scope_list
