@@ -95,14 +95,12 @@ def get_scope(client_session, transport_zone_name):
     try:
         vdn_scopes = client_session.read('vdnScopes', 'read')['body']
         vdn_scope_list = client_session.normalize_list_return(vdn_scopes['vdnScopes'])
-        # vdn_scope = [scope for scope in vdn_scope_list[0]['vdnScope']
-        #              if scope['name'] == transport_zone_name][0]
         vdn_scope = []
         for scope in vdn_scope_list:
             # It's possible scope['vdnScope'] is a single scope object or a list
             # of scope objects if multiple transport zones exist.  Normalize to
             # a list for finding the right scope in either scenario.
-            vdnScopes = scope['vdnScope'] if instanceof(scope['vdnScope'], list) else [scope['vdnScope']]
+            vdnScopes = scope['vdnScope'] if isinstance(scope['vdnScope'], list) else [scope['vdnScope']]
 
             for vdnScope in vdnScopes:
                 if vdnScope['name'] == transport_zone_name:
