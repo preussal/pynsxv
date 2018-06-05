@@ -94,9 +94,7 @@ def get_scope(client_session, transport_zone_name):
     """
     try:
         vdn_scopes = client_session.read('vdnScopes', 'read')['body']
-        print("vdn_scopes:  "+str(vdn_scopes))
         vdn_scope_list = client_session.normalize_list_return(vdn_scopes['vdnScopes'])
-        print("vdn_scope_list:  "+str(vdn_scope_list))
         # vdn_scope = [scope for scope in vdn_scope_list[0]['vdnScope']
         #              if scope['name'] == transport_zone_name][0]
         vdn_scope = []
