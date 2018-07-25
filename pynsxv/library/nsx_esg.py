@@ -104,13 +104,15 @@ def _esg_create(client_session, vccontent, **kwargs):
     else:
         print 'Edge Service Gateway {} creation failed'.format(kwargs['esg_name'])
 
-def routing_ospf(client_session, esg_name, vnic_ip, area_id, auth_type, auth_value):
+def routing_ospf(client_session, esg_name, vnic_ip, area_id, auth_type, auth_value, dgw_ip):
     """
     This function configures the edge for OSPF routing
     :param client_session: An instance of an NsxClient Session
-    :param area_id: The id of the vCenter vLAN to use for uplink
+    :param esg_name: The name of the edge instance
+    :param area_id: The OSPF area to use for uplink
     :param auth_type: The type of auth to do (MD5 or password)
     :param auth_value: The MD5 value or password based on auth_type
+    :param dgw_ip: The default gateway assigned to the ESG
     :return: ???
     """
     routing_dict = client_session.extract_resource_body_example('routingConfig', 'update')
@@ -121,7 +123,7 @@ def routing_ospf(client_session, esg_name, vnic_ip, area_id, auth_type, auth_val
     del routing_dict['routing']['routingGlobalConfig']['ipPrefixes']
     routing_dict['routing']['ospf']['redistribution']['enabled'] = 'false'
 
-    routing_dict['routing']['staticRouting']['defaultRoute']['gatewayAddress'] = '10.193.252.1'
+    routing_dict['routing']['staticRouting']['defaultRoute']['gatewayAddress'] = dgw_ip
     routing_dict['routing']['staticRouting']['defaultRoute']['vnic'] = '0'
 
     routing_dict['routing']['routingGlobalConfig']['routerId'] = vnic_ip
@@ -151,12 +153,12 @@ def routing_ospf(client_session, esg_name, vnic_ip, area_id, auth_type, auth_val
         return False, esg_id
 
 def _routing_ospf(client_session, vccontent, **kwargs):
-    needed_params = ['esg_name', 'vnic_ip', 'area_id', 'auth_type', 'auth_value']
+    needed_params = ['esg_name', 'vnic_ip', 'area_id', 'auth_type', 'auth_value', 'next_hop']
     if not check_for_parameters(needed_params, kwargs):
         return None
 
     result, esg_id = routing_ospf(client_session, kwargs['esg_name'], kwargs['vnic_ip'], kwargs['area_id'], kwargs['auth_type'],
-                                    kwargs['auth_value'])
+                                    kwargs['auth_value'], kwargs['next_hop'])
     if kwargs['verbose'] and result and esg_id:
         edge_id, esg_details = esg_read(client_session, esg_id)
         print json.dumps(esg_details)
@@ -872,7 +874,7 @@ def contruct_parser(subparsers):
                         help="vCenter Cluster or Ressource Pool to deploy ESGs in, default is taken from INI File")
     parser.add_argument("-area",
                         "--area_id",
-                        help="vCenter vlan ID")
+                        help="OSPF area ID")
     parser.add_argument("-auth_type",
                         "--auth_type",
                         help="MD5 or password",
