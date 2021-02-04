@@ -32,6 +32,8 @@ import library.nsx_dhcp as dhcp
 import library.nsx_lb as lb
 import library.nsx_dfw as dfw
 import library.nsx_usage as usage
+import library.nsx_cert as cert
+import library.nsx_nat as nat
 
 
 def main():
@@ -57,6 +59,8 @@ def main():
     lb.contruct_parser(subparsers)
     dfw.contruct_parser(subparsers)
     usage.contruct_parser(subparsers)
+    cert.contruct_parser(subparsers)
+    nat.contruct_parser(subparsers)
 
     args = parser.parse_args()
     args.func(args)

@@ -95,8 +95,17 @@ def get_scope(client_session, transport_zone_name):
     try:
         vdn_scopes = client_session.read('vdnScopes', 'read')['body']
         vdn_scope_list = client_session.normalize_list_return(vdn_scopes['vdnScopes'])
-        vdn_scope = [scope['vdnScope'] for scope in vdn_scope_list
-                     if scope['vdnScope']['name'] == transport_zone_name][0]
+        vdn_scope = []
+        for scope in vdn_scope_list:
+            # It's possible scope['vdnScope'] is a single scope object or a list
+            # of scope objects if multiple transport zones exist.  Normalize to
+            # a list for finding the right scope in either scenario.
+            vdnScopes = scope['vdnScope'] if isinstance(scope['vdnScope'], list) else [scope['vdnScope']]
+
+            for vdnScope in vdnScopes:
+                if vdnScope['name'] == transport_zone_name:
+                    vdn_scope.append(vdnScope)
+        vdn_scope = vdn_scope[0]
     except KeyError:
         return None, None
 
@@ -178,6 +187,69 @@ def connect_to_vc(vchost, user, pwd):
     return service_instance.RetrieveContent()
 
 
+def get_certificate(client_session, edge_name, cert_name):
+    """
+    :param client_session: An instance of an NsxClient Session
+    :param edge_name: The name of the edge searched
+    :param cert_name: The name of the cert to be found (the common name)
+    :return: A tuple, with the first item being the cert
+             and the second item being a dictionary of the logical parameters as return by the NSX API
+    """
+    edge_id, edge_params = get_edge(client_session, edge_name)
+    all_certs = client_session.read('certificateScope', uri_parameters={"scopeId": edge_id})['body']['certificates']['certificate']
+
+    if type(all_certs) == type(dict()):
+        if all_certs['name'] == cert_name:
+            return all_certs['objectId'], all_certs
+    elif type(all_certs) == type(list()):
+        try:
+            cert_params = [scope for scope in all_certs if scope['name'] == cert_name][0]
+            cert_id = cert_params['objectId']
+        except IndexError:
+            return None, None
+
+        return cert_id, cert_params
+
+
+def get_rule(client_session, edge_name, rule_name):
+    """
+    :param client_session: An instance of an NsxClient Session
+    :param edge_name: The name of the edge searched
+    :param rule_name: The name of the rule to be found (the common name)
+    :return: A tuple, with the first item being the id of the rule
+             and the second item being a dictionary of the logical parameters as return by the NSX API
+    """
+    edge_id, edge_params = get_edge(client_session, edge_name)
+    all_rules = client_session.read('appRules', uri_parameters={"edgeId": edge_id})['body']['loadBalancer']['applicationRule']
+
+    try:
+        rule_params = [scope for scope in all_rules if scope['name'] == rule_name][0]
+        rule_id = rule_params['applicationRuleId']
+    except IndexError:
+        return None, None
+
+    return rule_id, rule_params
+
+def get_vip(client_session, edge_name, vip_name):
+    """
+    :param client_session: An instance of an NsxClient Session
+    :param edge_name: The name of the edge searched
+    :param vip_name: The name of the VIP to be found (the common name)
+    :return: A tuple, with the first item being the id of the VIP
+             and the second item being a dictionary of the logical parameters as return by the NSX API
+    """
+    edge_id, edge_params = get_edge(client_session, edge_name)
+    all_vips = client_session.read('virtualServers', uri_parameters={"edgeId": edge_id})['body']['loadBalancer']['virtualServer']
+
+    try:
+        vip_params = [scope for scope in all_vips if scope['name'] == vip_name][0]
+        vip_id = vip_params['virtualServerId']
+    except IndexError:
+        return None, None
+
+    return vip_id, vip_params
+
+
 def get_edge(client_session, edge_name):
     """
     :param client_session: An instance of an NsxClient Session
@@ -218,7 +290,11 @@ def get_edgeresourcepoolmoid(content, edge_cluster):
     if cluser_mo:
         return str(cluser_mo._moId)
     else:
-        return None
+        cluser_mo = get_mo_by_name(content, edge_cluster, VIM_TYPES['resourcepool_name'])
+        if cluser_mo:
+            return str(cluser_mo._moId)
+        else:
+            return None
 
 
 def get_vdsportgroupid(content, switch_name):
@@ -228,6 +304,12 @@ def get_vdsportgroupid(content, switch_name):
     else:
         return None
 
+def get_networkid(content, switch_name):
+    network_mo = get_mo_by_name(content, switch_name, VIM_TYPES['portgroup'])
+    if network_mo:
+        return str(network_mo._moId)
+    else:
+        return None
 
 def get_vm_by_name(content, vm_name):
     vm_mo = get_mo_by_name(content, vm_name, VIM_TYPES['vm'])

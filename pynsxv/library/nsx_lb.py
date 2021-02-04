@@ -26,7 +26,7 @@ import argparse
 import ConfigParser
 import json
 from tabulate import tabulate
-from libutils import get_edge, check_for_parameters
+from libutils import get_edge, check_for_parameters, get_certificate, get_rule, get_vip
 from nsxramlclient.client import NsxClient
 from argparse import RawTextHelpFormatter
 from pkg_resources import resource_filename
@@ -36,7 +36,7 @@ __author__ = 'yfauser'
 
 
 def add_app_profile(client_session, esg_name, prof_name, template, persistence=None, expire_time=None, cookie_name=None,
-                    cookie_mode=None, xforwardedfor=None, url=None):
+                    cookie_mode=None, xforwardedfor=None, url=None, cert_name=None, ssl_passthrough=None, pool_side_ssl=None):
     """
     This function adds an Load Balancer Application profile to an ESG
 
@@ -70,6 +70,14 @@ def add_app_profile(client_session, esg_name, prof_name, template, persistence=N
 
     app_prof = client_session.extract_resource_body_example('applicationProfiles', 'create')
 
+    if cert_name is not None:
+        cert_id, cert_params = get_certificate(client_session, esg_name, cert_name)
+        if not cert_id:
+            print 'Certificate could not be found'
+            return None
+        app_prof['applicationProfile']['clientSsl'] = {'serviceCertificate' : cert_id, 'clientAuth' : 'ignore'}
+
+
     app_prof['applicationProfile']['name'] = prof_name
     app_prof['applicationProfile']['template'] = template
 
@@ -100,6 +108,15 @@ def add_app_profile(client_session, esg_name, prof_name, template, persistence=N
     else:
         app_prof['applicationProfile']['insertXForwardedFor'] = 'false'
 
+    if ssl_passthrough == 'true':
+        app_prof['applicationProfile']['sslPassthrough'] = 'true'
+
+    if pool_side_ssl == 'true':
+        app_prof['applicationProfile']['serverSslEnabled'] = 'true'
+        app_prof['applicationProfile']['serverSsl'] = {}
+        app_prof['applicationProfile']['serverSsl']['ciphers'] = 'DEFAULT'
+        app_prof['applicationProfile']['serverSsl']['serverAuth'] = 'false'
+
     if url:
         app_prof['applicationProfile']['httpRedirect'] = {'to': url}
 
@@ -119,7 +136,8 @@ def _add_app_profile(client_session, **kwargs):
     result = add_app_profile(client_session, kwargs['esg_name'], kwargs['profile_name'], kwargs['protocol'],
                              persistence=kwargs['persistence'], expire_time=kwargs['expire'],
                              cookie_name=kwargs['cookie_name'], cookie_mode=kwargs['cookie_mode'],
-                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'])
+                             xforwardedfor=kwargs['xforwardedfor'], url=kwargs['url'], cert_name=kwargs['cert_name'], ssl_passthrough=kwargs['ssl_passthrough'],
+                             pool_side_ssl=kwargs['pool_side_ssl'])
 
     if result and kwargs['verbose']:
         print result
@@ -128,6 +146,107 @@ def _add_app_profile(client_session, **kwargs):
                                                                                                   result)
     else:
         print 'LB App configuration on esg {} failed'.format(kwargs['esg_name'])
+
+
+def add_app_rule(client_session, esg_name, rule_name, rule_script):
+    """
+    This function adds an application rule to the load balancer
+
+    :type client_session: nsxramlclient.client.NsxClient
+    :param client_session: A nsxramlclient session Object
+    :type esg_name: str
+    :param esg_name: The display name of a Edge Service Gateway used for Load Balancing
+    :type rule_name: str
+    :param rule_name: The display name of a Edge Service Gateway used for Load Balancing
+    :type rule_script: str
+    :param rule_script: The name for the to be created Load Balancer Application profile
+    :return: Returns the Object Id of the newly created Application Rule, False on a failure, and None if the ESG was
+             not found in NSX
+    :rtype: str
+    """
+    esg_id, esg_params = get_edge(client_session, esg_name)
+    if not esg_id:
+        return None
+
+    rule_dict = client_session.extract_resource_body_example('appRules', 'create')
+
+    rule_dict['applicationRule']['name'] = rule_name
+    rule_dict['applicationRule']['script'] = rule_script
+
+    result = client_session.create('appRules', uri_parameters={'edgeId': esg_id}, request_body_dict=rule_dict)
+    if result['status'] != 201:
+        return None
+    else:
+        return result['objectId']
+
+
+def _add_app_rule(client_session, **kwargs):
+    needed_params = ['esg_name', 'rule_name', 'rule_script']
+    if not check_for_parameters(needed_params, kwargs):
+        return None
+
+    result = add_app_rule(client_session, kwargs['esg_name'], kwargs['rule_name'], kwargs['rule_script'])
+
+    if result and kwargs['verbose']:
+        print result
+    elif result:
+        print 'LB App Profile configuration on esg {} succeeded, the App Profile Id is {}'.format(kwargs['esg_name'],
+                                                                                                  result)
+    else:
+        print 'LB App configuration on esg {} failed'.format(kwargs['esg_name'])
+
+
+def add_rule_to_vip(client_session, esg_name, rule_name, vip_name):
+
+    esg_id, esg_params = get_edge(client_session, esg_name)
+    if not esg_id:
+        print "ESG not found"
+        return None
+
+    rule_id, rule_params = get_rule(client_session, esg_name, rule_name)
+    if not rule_id:
+        print "Rule not found"
+        return None
+
+    vip_id, vip_params = get_vip(client_session, esg_name, vip_name)
+    if not vip_id:
+        print "VIP not found"
+        return None
+
+    esg = client_session.read('nsxEdge', uri_parameters={'edgeId': esg_id})['body']
+    vips = esg['edge']['features']['loadBalancer']['virtualServer']
+
+    for vip in vips:
+        if vip['virtualServerId'] == vip_id:
+            if not vip.get('applicationRuleId'):
+                vip['applicationRuleId'] = []
+            elif type(vip['applicationRuleId']) == type(str()):
+                r = vip['applicationRuleId']
+                vip['applicationRuleId'] = []
+                vip['applicationRuleId'].append(r)
+            vip['applicationRuleId'].append(rule_id)
+
+    result = client_session.update('nsxEdge', uri_parameters={'edgeId': esg_id}, request_body_dict=esg)
+
+    if result['status'] != 204:
+        return None
+    else:
+        return result
+
+
+def _add_rule_to_vip(client_session, **kwargs):
+    needed_params = ['esg_name', 'rule_name', 'vip_name']
+    if not check_for_parameters(needed_params, kwargs):
+        return None
+
+    result = add_rule_to_vip(client_session, kwargs['esg_name'], kwargs['rule_name'], kwargs['vip_name'])
+
+    if result and kwargs['verbose']:
+        print result
+    elif result:
+        print 'VIP {} on esg {} has been updated to include rule {}'.format(kwargs['vip_name'], kwargs['esg_name'], kwargs['rule_name'])
+    else:
+        print 'Failed to update VIP {} on esg {} with rule {}'.format(kwargs['vip_name'], kwargs['esg_name'], kwargs['rule_name'])
 
 
 def read_app_profile(client_session, esg_name, prof_name):
@@ -754,7 +873,7 @@ def _list_members(client_session, **kwargs):
                                              "Max Conn", "Min Conn", "Condition"], tablefmt="psql")
 
 
-def add_vip(client_session, esg_name, vip_name, app_profile, vip_ip, protocol, port, pool_name, vip_description=None,
+def add_vip(client_session, esg_name, vip_name, app_profile, vip_ip, protocol, port, pool_name, rule_id, vip_description=None,
             conn_limit=None, conn_rate_limit=None, acceleration=None):
     """
     This function creates a Load Balancing Virtual IP / Virtual Server (VIP) on an ESG
@@ -783,6 +902,8 @@ def add_vip(client_session, esg_name, vip_name, app_profile, vip_ip, protocol, p
     :param conn_rate_limit: Connection rate Limit on the virtual server (VIP)
     :type acceleration: str
     :param acceleration: Is Acceleration enabled for this VIP ('true'/'false')
+    :type rule_id: str
+    :param rule_id: Rule ID to add to VIP
     :rtype: str
     :return: Returns the Object Id of the newly created VIP, False on a failure, and None if the ESG was
              not found in NSX
@@ -816,6 +937,7 @@ def add_vip(client_session, esg_name, vip_name, app_profile, vip_ip, protocol, p
     vip['virtualServer']['defaultPoolId'] = pool_id
     vip['virtualServer']['enableServiceInsertion'] = 'false'
     vip['virtualServer']['accelerationEnabled'] = acceleration
+    vip['virtualServer']['applicationRuleId'] = rule_id
 
     result = client_session.create('virtualServers', uri_parameters={'edgeId': esg_id}, request_body_dict=vip)
 
@@ -833,7 +955,7 @@ def _add_vip(client_session, **kwargs):
     result = add_vip(client_session, kwargs['esg_name'], kwargs['vip_name'], kwargs['profile_name'], kwargs['vip_ip'],
                      kwargs['protocol'], kwargs['port'], kwargs['pool_name'], vip_description=kwargs['vip_description'],
                      conn_limit=kwargs['conn_limit'], conn_rate_limit=kwargs['conn_rate_limit'],
-                     acceleration=kwargs['acceleration'])
+                     acceleration=kwargs['acceleration'], rule_id=kwargs['rule_id'])
 
     if result and kwargs['verbose']:
         print result
@@ -1439,6 +1561,8 @@ def contruct_parser(subparsers):
     disable_lb:         Disables the Load Balancing Service on the ESG
     show_lb:            Show the current LB Configuration and Status
     delete_lb:          Delete the complete LB Configuration on the Load Balancer
+    add_rule:           Adds a new application rule
+    add_rule_to_vip     Adds an additional rule to an already created VIP
     """)
 
     parser.add_argument("-n",
@@ -1580,6 +1704,25 @@ def contruct_parser(subparsers):
     parser.add_argument("-ll",
                         "--log_level",
                         help="Log level for LB")
+    parser.add_argument("-rn",
+                        "--rule_name",
+                        help="Name of application rule")
+    parser.add_argument("-rs",
+                        "--rule_script",
+                        help="Script to use for application rule")
+    parser.add_argument("-rid",
+                        "--rule_id",
+                        help="Rule ID to add to VIP",
+                        action="append")
+    parser.add_argument("-cert",
+                        "--cert_name",
+                        help="Name of certificate to use for app profile")
+    parser.add_argument("-ssl_passthrough",
+                        "--ssl_passthrough",
+                        help="true/false to pass SSL traffic on to next hop, defaults to false")
+    parser.add_argument("-pool_side_ssl",
+                        "--pool_side_ssl",
+                        help="true/false to terminate current SSL and start new SSL to the pool members")
 
     parser.set_defaults(func=_lb_main)
 
@@ -1627,7 +1770,9 @@ def _lb_main(args):
             'enable_lb': _enable_lb,
             'disable_lb': _disable_lb,
             'show_lb': _show_loadbalancer,
-            'delete_lb': _delete_load_balancer
+            'delete_lb': _delete_load_balancer,
+            'add_rule': _add_app_rule,
+            'add_rule_to_vip': _add_rule_to_vip
             }
         command_selector[args.command](client_session, esg_name=args.esg_name, profile_name=args.profile_name,
                                        profile_id=args.profile_id, protocol=args.protocol,
@@ -1645,7 +1790,10 @@ def _lb_main(args):
                                        log_level=args.log_level, mon_name=args.mon_name, mon_id=args.mon_id,
                                        timeout=args.timeout, interval=args.interval, max_retries=args.max_retries,
                                        mon_expected=args.mon_expected, method=args.method, send=args.send,
-                                       receive=args.receive, extension=args.extension, verbose=args.verbose)
+                                       receive=args.receive, extension=args.extension, verbose=args.verbose,
+                                       rule_name=args.rule_name, rule_script=args.rule_script,
+                                       rule_id=args.rule_id, cert_name=args.cert_name, ssl_passthrough=args.ssl_passthrough,
+                                       pool_side_ssl=args.pool_side_ssl)
     except KeyError as e:
         print('Unknown command: {}'.format(e))
 

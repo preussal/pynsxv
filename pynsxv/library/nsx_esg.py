@@ -3,23 +3,23 @@
 #
 # Copyright © 2016 VMware, Inc. All Rights Reserved.
 #
-# Licensed under the X11 (MIT) (the “License”) set forth below; 
+# Licensed under the X11 (MIT) (the “License”) set forth below;
 #
-# you may not use this file except in compliance with the License. Unless required by applicable law or agreed to in 
-# writing, software distributed under the License is distributed on an “AS IS” BASIS, without warranties or conditions 
-# of any kind, EITHER EXPRESS OR IMPLIED. See the License for the specific language governing permissions and 
-# limitations under the License. Permission is hereby granted, free of charge, to any person obtaining a copy of this 
-# software and associated documentation files (the "Software"), to deal in the Software without restriction, including 
-# without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the 
-# Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: 
+# you may not use this file except in compliance with the License. Unless required by applicable law or agreed to in
+# writing, software distributed under the License is distributed on an “AS IS” BASIS, without warranties or conditions
+# of any kind, EITHER EXPRESS OR IMPLIED. See the License for the specific language governing permissions and
+# limitations under the License. Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+# Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all copies or substantial portions of 
+# The above copyright notice and this permission notice shall be included in all copies or substantial portions of
 # the Software.
-# 
-# "THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
-# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN 
-# AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+#
+# "THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+# AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.”
 
 __author__ = 'yfauser'
@@ -28,7 +28,7 @@ import argparse
 import ConfigParser
 import json
 from libutils import get_logical_switch, get_vdsportgroupid, connect_to_vc, check_for_parameters
-from libutils import get_datacentermoid, get_edgeresourcepoolmoid, get_edge, get_datastoremoid
+from libutils import get_datacentermoid, get_edgeresourcepoolmoid, get_edge, get_datastoremoid, get_networkid
 from tabulate import tabulate
 from nsxramlclient.client import NsxClient
 from argparse import RawTextHelpFormatter
@@ -91,7 +91,7 @@ def _esg_create(client_session, vccontent, **kwargs):
     datacentermoid = get_datacentermoid(vccontent, kwargs['datacenter_name'])
     datastoremoid = get_datastoremoid(vccontent, kwargs['edge_datastore'])
     resourcepoolid = get_edgeresourcepoolmoid(vccontent, kwargs['edge_cluster'])
-    portgroupmoid = get_vdsportgroupid(vccontent, kwargs['portgroup'])
+    portgroupmoid = get_networkid(vccontent, kwargs['portgroup'])
 
     esg_id, esg_params = esg_create(client_session, kwargs['esg_name'], kwargs['esg_pwd'], kwargs['esg_size'],
                                     datacentermoid, datastoremoid, resourcepoolid, portgroupmoid,
@@ -104,6 +104,68 @@ def _esg_create(client_session, vccontent, **kwargs):
     else:
         print 'Edge Service Gateway {} creation failed'.format(kwargs['esg_name'])
 
+def routing_ospf(client_session, esg_name, vnic_ip, area_id, auth_type, auth_value, dgw_ip):
+    """
+    This function configures the edge for OSPF routing
+    :param client_session: An instance of an NsxClient Session
+    :param esg_name: The name of the edge instance
+    :param area_id: The OSPF area to use for uplink
+    :param auth_type: The type of auth to do (MD5 or password)
+    :param auth_value: The MD5 value or password based on auth_type
+    :param dgw_ip: The default gateway assigned to the ESG
+    :return: ???
+    """
+    routing_dict = client_session.extract_resource_body_example('routingConfig', 'update')
+
+    del routing_dict['routing']['ospf']['redistribution']['rules']
+    del routing_dict['routing']['bgp']
+    del routing_dict['routing']['staticRouting']['staticRoutes']
+    del routing_dict['routing']['routingGlobalConfig']['ipPrefixes']
+    routing_dict['routing']['ospf']['redistribution']['enabled'] = 'false'
+
+    routing_dict['routing']['staticRouting']['defaultRoute']['gatewayAddress'] = dgw_ip
+    routing_dict['routing']['staticRouting']['defaultRoute']['vnic'] = '0'
+
+    routing_dict['routing']['routingGlobalConfig']['routerId'] = vnic_ip
+
+    routing_dict['routing']['ospf']['enabled'] = 'true'
+    routing_dict['routing']['ospf']['gracefulRestart'] = 'true'
+    routing_dict['routing']['ospf']['ospfAreas']['ospfArea']['areaId'] = area_id
+    routing_dict['routing']['ospf']['ospfAreas']['ospfArea']['type'] = 'Normal'
+    routing_dict['routing']['ospf']['ospfAreas']['ospfArea']['authentication']['type'] = auth_type
+    routing_dict['routing']['ospf']['ospfAreas']['ospfArea']['authentication']['value'] = auth_value
+
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['vnic'] = '0'
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['areaId'] = area_id
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['helloInterval'] = '10'
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['deadInterval'] = '40'
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['priority'] = '128'
+    routing_dict['routing']['ospf']['ospfInterfaces']['ospfInterface']['cost'] = '1'
+
+    esg_id, esg_params = get_edge(client_session, esg_name)
+    if not esg_id:
+        return False, None
+
+    new_esg = client_session.update('routingConfig', uri_parameters={'edgeId': esg_id}, request_body_dict=routing_dict)
+    if new_esg['status'] == 204:
+        return True, esg_id
+    else:
+        return False, esg_id
+
+def _routing_ospf(client_session, vccontent, **kwargs):
+    needed_params = ['esg_name', 'vnic_ip', 'area_id', 'auth_type', 'auth_value', 'next_hop']
+    if not check_for_parameters(needed_params, kwargs):
+        return None
+
+    result, esg_id = routing_ospf(client_session, kwargs['esg_name'], kwargs['vnic_ip'], kwargs['area_id'], kwargs['auth_type'],
+                                    kwargs['auth_value'], kwargs['next_hop'])
+    if kwargs['verbose'] and result and esg_id:
+        edge_id, esg_details = esg_read(client_session, esg_id)
+        print json.dumps(esg_details)
+    elif result and esg_id:
+        print 'Edge Service Gateway {} configured for OSPF'.format(kwargs['esg_name'], esg_id)
+    else:
+        print 'Edge Service Gateway {} configuration of OSPF failed'.format(kwargs['esg_name'])
 
 def esg_delete(client_session, esg_name):
     """
@@ -745,6 +807,7 @@ def contruct_parser(subparsers):
     list_interfaces:  list all interfaces of dlr
     set_size:         Resize ESG
     set_fw_status:    Set the default firewall policy to accept or deny
+    routing_ospf:     Configure OSPF Routing
     """)
 
     parser.add_argument("-n",
@@ -809,6 +872,16 @@ def contruct_parser(subparsers):
     parser.add_argument("-cl",
                         "--edge_cluster",
                         help="vCenter Cluster or Ressource Pool to deploy ESGs in, default is taken from INI File")
+    parser.add_argument("-area",
+                        "--area_id",
+                        help="OSPF area ID")
+    parser.add_argument("-auth_type",
+                        "--auth_type",
+                        help="MD5 or password",
+                        default='MD5')
+    parser.add_argument("-auth_value",
+                        "--auth_value",
+                        help="value for auth")
 
     parser.set_defaults(func=_esg_main)
 
@@ -864,7 +937,8 @@ def _esg_main(args):
             'set_fw_status': _esg_fw_default_set,
             'add_route': _esg_route_add,
             'delete_route': _esg_route_del,
-            'list_routes': _esg_route_list
+            'list_routes': _esg_route_list,
+            'routing_ospf': _routing_ospf
         }
         command_selector[args.command](client_session, vccontent=vccontent, esg_name=args.esg_name,
                                        esg_pwd=args.esg_password, esg_size=args.esg_size,
@@ -875,7 +949,8 @@ def _esg_main(args):
                                        vnic_state=args.vnic_state, vnic_ip=args.vnic_ip, vnic_mask=args.vnic_mask,
                                        route_net=args.route_net, fw_default=args.fw_default,
                                        esg_remote_access=args.esg_remote_access,
-                                       vnic_secondary_ips=args.vnic_secondary_ips, verbose=args.verbose)
+                                       vnic_secondary_ips=args.vnic_secondary_ips, verbose=args.verbose,
+                                       area_id=args.area_id, auth_type=args.auth_type, auth_value=args.auth_value)
     except KeyError as e:
         print('Unknown command: {}'.format(e))
 
